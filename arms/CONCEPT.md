@@ -17,7 +17,9 @@ Two hardware tracks in this repo, likely doing different jobs:
 - `visualizer/` — WebGL concept console, simulates the reach/echo/fold-back
   behavior before any hardware exists. Not calibrated to real geometry yet.
 
-Repo is private. No thesis/theory writing here, that belongs in
+This was the whole of the private tuft repo until 28 Sep 2026, when it was
+merged into the (public) servo-grid repo. The `servo/` and `stepper/` folders
+above were never created. No thesis/theory writing here, that belongs in
 `affective-devices/docs/`.
 
 ## Conventions

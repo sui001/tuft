@@ -1,17 +1,19 @@
-# polyp
+# tuft
 
-The "notwled" project. WLED drives addressable LED protocols with a 2D panel
-arrangement (multiple physical matrices stitched into one virtual canvas) and an
-effects engine that runs over that stitched space without knowing panel
-boundaries exist. Polyp is the same two ideas, panel layout + effects-over-a-
-virtual-grid, rewritten for PCA9685-driven servo patches instead of LED strips.
-It is not a WLED fork; the output layer (PWM angle vs. RGB brightness) is
-different enough that forking bought nothing but a codebase built for the wrong
-peripheral.
+A tuft of grass made of servos: a grid of SG92Rs with long stainless rod
+horns, swaying as one field. Part of the Cybernetic Garden machine roster
+alongside Groundskeeper/Proty/Platty in `gen3d`.
 
-Named after the coral/anemone polyp: one body, one PCA9685 "patch," a ring of
-reaching parts. Grew out of [[project_tuft_concept]] but is meant to be reusable
-by anything in gen3d wanting a servo grid, not scoped to Tuft.
+The software idea is the "notwled" one. WLED stitches several LED matrices into
+one virtual canvas and runs effects over it without knowing where the panel
+boundaries are. Tuft does the same for servo patches: panel layout plus
+effects-over-a-virtual-grid, with PWM angle as the output instead of RGB
+brightness. Not a WLED fork, the output layer is too different for a fork to
+buy anything.
+
+This repo was called **polyp** until 28 Sep 2026 and was merged with the older
+private tuft repo (the ceiling-arm concept, now in `arms/`). GitHub redirects
+the old `sui001/polyp` URLs.
 
 ## Core model
 
@@ -22,18 +24,31 @@ by anything in gen3d wanting a servo grid, not scoped to Tuft.
   never a literal channel number. The layout layer is what turns
   `(worldX, worldY)` into `(I2C address, channel)`.
 
+## Hardware
+
+From v7.0 the servos run off a PCA9685, not direct GPIO. Direct GPIO (v3 to
+v6.1) topped out at 20 channels and needed soldered underside pads, which a
+replacement SuperMini doesn't have.
+
+- PCA9685 at 0x40: SDA GPIO10, SCL GPIO9, VCC 3V3, OE unconnected.
+- Servo power into the PCA9685's V+ screw terminal only, never the ESP's 5V
+  pin. Ground shared with the ESP.
+- SuperMini "VIN" is the 5V rail feeding a ~6V abs max regulator. 19V killed
+  one board on 28 Sep 2026, keep the buck at 5.0V if it feeds the ESP.
+
 ## Contents
 
-- `visualizer/` — WebGL concept console: arrange patches, preview an effect
-  running across them as servo-paddle tilt. Concept stage, not driving real
-  hardware yet.
-- `index.html` at repo root mirrors `visualizer/polyp-console.html`, it's what
-  GitHub Pages serves at sui001.github.io/polyp. Keep both in sync by hand.
+- `firmware/` — one folder per version, `tuft_<layout>_<effect>_v<X>_<Y>`.
+  Latest is the highest version number.
+- `visualizer/` — WebGL console: arrange patches, preview an effect as
+  servo-paddle tilt.
+- `index.html` at repo root mirrors `visualizer/tuft-console.html`, it's what
+  GitHub Pages serves at sui001.github.io/tuft. Keep both in sync by hand.
+- `arms/` — the earlier ceiling-mounted reaching-arm concept (a different
+  machine, same name). Concept notes and its own console.
 
-Repo is **public** (made so 2026-09-06 so the free GitHub Pages plan could
-serve the console, private repos need GitHub Pro for Pages). No thesis/theory
-writing here regardless, that belongs in `affective-devices/docs/`, and stays
-out even more strictly now that this repo isn't private.
+Repo is **public** (so the free GitHub Pages plan can serve the console). No
+thesis/theory writing here, that belongs in `affective-devices/docs/`.
 
 ## Conventions
 
