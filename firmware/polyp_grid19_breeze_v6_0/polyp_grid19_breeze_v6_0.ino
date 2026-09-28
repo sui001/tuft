@@ -205,7 +205,10 @@ float breezeOffset(int i, float t) {
 void setup() {
   Serial.begin(115200);
   delay(2500);
-  Serial.printf("\nPolyp grid breeze, firmware v%s\n", VERSION);
+  Serial.println();
+  Serial.println("=== Polyp grid breeze v" VERSION " ===");
+  Serial.println("4x4 SG92R servo grid (Tuft), direct GPIO via LEDC + MCPWM, breeze effect");
+  Serial.println("https://github.com/sui001/polyp/tree/master/firmware/polyp_grid19_breeze_v6_0");
   randomSeed(esp_random());
 
   int ledcActive = (ACTIVE_COUNT < LEDC_COUNT) ? ACTIVE_COUNT : LEDC_COUNT;
