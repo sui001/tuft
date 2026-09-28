@@ -1,0 +1,597 @@
+<!--
+  Tuft reach-cluster console. Concept-stage simulation, not calibrated to real
+  arm geometry. Orbit/pan/zoom camera + rotary dials are hand-rolled (no
+  three.js OrbitControls addon, to keep this to a single pinned CDN script).
+-->
+<title>Tuft</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<style>
+  :root{
+    --bg:#080c0a;
+    --panel: rgba(15,21,17,0.74);
+    --panel-solid:#101712;
+    --ink:#eaf2ea;
+    --ink-dim:#8fa596;
+    --ink-faint:#526158;
+    --accent:#3ddc97;
+    --accent-soft: rgba(61,220,151,0.16);
+    --accent-2:#e08a4a;
+    --accent-2-soft: rgba(224,138,74,0.16);
+    --line: rgba(234,242,234,0.09);
+    --caught:#ff6b5e;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overflow:hidden;
+    font-family:'IBM Plex Sans', system-ui, sans-serif;}
+
+  #scene{position:fixed;inset:0;}
+  canvas{display:block;touch-action:none;}
+
+  .topbar{position:fixed;top:22px;left:26px;pointer-events:none;}
+  .wordmark{font-family:'Fraunces', Georgia, serif;font-weight:600;font-size:1.9rem;
+    letter-spacing:-0.01em;color:var(--ink);font-style:italic;}
+  .subtitle{font-family:'JetBrains Mono',monospace;font-size:0.68rem;letter-spacing:0.14em;
+    text-transform:uppercase;color:var(--ink-faint);margin-top:2px;}
+
+  .hint{position:fixed;bottom:20px;left:26px;font-family:'JetBrains Mono',monospace;
+    font-size:0.66rem;color:var(--ink-faint);letter-spacing:0.02em;line-height:1.6;
+    pointer-events:none;}
+  .hint b{color:var(--ink-dim);font-weight:500;}
+
+  .reset-btn{position:fixed;bottom:20px;right:26px;font-family:'JetBrains Mono',monospace;
+    font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim);
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:8px 14px;cursor:pointer;backdrop-filter:blur(10px);}
+  .reset-btn:hover{color:var(--ink);border-color:var(--accent-soft);}
+  .reset-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .dock{position:fixed;top:26px;right:26px;width:272px;max-height:calc(100% - 52px);
+    overflow-y:auto;background:var(--panel);backdrop-filter:blur(14px);
+    border:1px solid var(--line);border-radius:16px;padding:18px 18px 20px;
+    display:flex;flex-direction:column;gap:16px;}
+  .dock::-webkit-scrollbar{width:6px;}
+  .dock::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+
+  .section-label{font-family:'JetBrains Mono',monospace;font-size:0.62rem;
+    letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-faint);
+    margin-bottom:10px;}
+  .section{border-top:1px solid var(--line);padding-top:14px;}
+  .section:first-child{border-top:none;padding-top:0;}
+
+  .status-grid{display:grid;grid-template-columns:1fr auto;row-gap:7px;column-gap:10px;
+    font-family:'JetBrains Mono',monospace;font-size:0.72rem;}
+  .status-grid dt{color:var(--ink-faint);}
+  .status-grid dd{margin:0;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .state-pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:0.64rem;
+    letter-spacing:0.08em;background:var(--accent-soft);color:var(--accent);
+    transition:background .25s, color .25s;}
+  .state-pill.caught{background:rgba(255,107,94,0.18);color:var(--caught);}
+
+  .dial-row{display:flex;gap:14px;justify-content:space-between;}
+  .dial-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;
+    -webkit-user-select:none;user-select:none;}
+  .dial-wrap svg{cursor:grab;touch-action:none;}
+  .dial-wrap svg:active{cursor:grabbing;}
+  .dial-label{font-size:0.64rem;letter-spacing:0.06em;text-transform:uppercase;
+    color:var(--ink-faint);text-align:center;}
+  .dial-value{font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--ink);
+    font-variant-numeric:tabular-nums;}
+
+  .slider-block{margin-bottom:14px;}
+  .slider-block:last-child{margin-bottom:0;}
+  .slider-head{display:flex;justify-content:space-between;font-size:0.72rem;
+    color:var(--ink-dim);margin-bottom:6px;}
+  .slider-head span:last-child{font-family:'JetBrains Mono',monospace;color:var(--ink);
+    font-variant-numeric:tabular-nums;}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;
+    background:var(--line);border-radius:2px;outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+    border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 0 3px var(--accent-soft);}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;
+    background:var(--accent);cursor:pointer;box-shadow:0 0 0 3px var(--accent-soft);}
+
+  .segmented{display:flex;background:rgba(0,0,0,0.25);border-radius:9px;padding:3px;
+    border:1px solid var(--line);}
+  .segmented button{flex:1;background:none;border:none;color:var(--ink-faint);
+    font-family:'IBM Plex Sans';font-size:0.7rem;font-weight:500;padding:7px 4px;
+    border-radius:6px;cursor:pointer;transition:background .2s,color .2s;}
+  .segmented button.active{background:var(--accent-soft);color:var(--accent);}
+  .segmented button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  @media (max-width: 640px){
+    .dock{width:calc(100% - 32px);left:16px;right:16px;top:auto;bottom:16px;max-height:44vh;}
+    .topbar{top:16px;left:16px;}
+    .hint{display:none;}
+  }
+</style>
+
+<div id="scene"></div>
+
+<div class="topbar">
+  <div class="wordmark">Tuft</div>
+  <div class="subtitle">reach cluster · concept console</div>
+</div>
+
+<div class="hint">
+  <b>drag</b> orbit · <b>right-drag</b> pan · <b>scroll</b> zoom<br>
+  <b>click floor</b> trigger a reach · <b>click near hub</b> catch it
+</div>
+
+<button class="reset-btn" id="resetView">reset view</button>
+
+<div class="dock">
+  <div class="section">
+    <div class="section-label">Status</div>
+    <dl class="status-grid">
+      <dt>state</dt><dd><span class="state-pill" id="statePill">IDLE</span></dd>
+      <dt>rings live</dt><dd id="ringsLive">3</dd>
+      <dt>arms total</dt><dd id="armsTotal">–</dd>
+      <dt>ToF range</dt><dd id="tofRange">– mm</dd>
+    </dl>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Geometry</div>
+    <div class="dial-row">
+      <div class="dial-wrap" id="dialRings"></div>
+      <div class="dial-wrap" id="dialReach"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Echo behavior</div>
+    <div class="slider-block">
+      <div class="slider-head"><span>ring falloff</span><span id="valFalloff">55%</span></div>
+      <input type="range" id="sliderFalloff" min="0" max="90" value="55" step="1">
+    </div>
+    <div class="slider-block">
+      <div class="slider-head"><span>echo delay</span><span id="valDelay">140 ms</span></div>
+      <input type="range" id="sliderDelay" min="0" max="400" value="140" step="10">
+    </div>
+    <div class="slider-block">
+      <div class="slider-head"><span>idle drift</span><span id="valDrift">30%</span></div>
+      <input type="range" id="sliderDrift" min="0" max="100" value="30" step="5">
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">On catch</div>
+    <div class="segmented">
+      <button id="modeFold" class="active">fold to center</button>
+      <button id="modeReset">reset</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- scene ----------
+  var container = document.getElementById('scene');
+  var scene = new THREE.Scene();
+  var bgColor = 0x080c0a;
+  scene.background = new THREE.Color(bgColor);
+  scene.fog = new THREE.Fog(bgColor, 6, 22);
+
+  var camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.1, 100);
+  var renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  container.appendChild(renderer.domElement);
+
+  var CEILING_Y = 3.4, FLOOR_Y = 0;
+
+  // ceiling plate
+  var ceiling = new THREE.Mesh(
+    new THREE.CircleGeometry(4.6, 48),
+    new THREE.MeshStandardMaterial({color:0x11170f, roughness:0.9, metalness:0.1, side:THREE.DoubleSide})
+  );
+  ceiling.rotation.x = Math.PI/2;
+  ceiling.position.y = CEILING_Y;
+  scene.add(ceiling);
+
+  // floor
+  var floor = new THREE.Mesh(
+    new THREE.CircleGeometry(7, 64),
+    new THREE.MeshStandardMaterial({color:0x040604, roughness:1})
+  );
+  floor.rotation.x = -Math.PI/2;
+  scene.add(floor);
+
+  var grid = new THREE.PolarGridHelper(7, 8, 8, 64, 0x1c2620, 0x141b17);
+  grid.position.y = 0.002;
+  scene.add(grid);
+
+  scene.add(new THREE.HemisphereLight(0x3a4a3f, 0x040604, 0.55));
+  var key = new THREE.PointLight(0xbfe8d4, 0.9, 20);
+  key.position.set(2, CEILING_Y + 1.5, 2);
+  scene.add(key);
+
+  var triggerLight = new THREE.PointLight(0x3ddc97, 0, 6);
+  scene.add(triggerLight);
+
+  var triggerMarker = new THREE.Mesh(
+    new THREE.RingGeometry(0.12, 0.16, 32),
+    new THREE.MeshBasicMaterial({color:0x3ddc97, transparent:true, opacity:0, side:THREE.DoubleSide})
+  );
+  triggerMarker.rotation.x = -Math.PI/2;
+  triggerMarker.position.y = 0.01;
+  scene.add(triggerMarker);
+
+  var hubZoneMarker = new THREE.Mesh(
+    new THREE.RingGeometry(0.85, 0.95, 48),
+    new THREE.MeshBasicMaterial({color:0xe08a4a, transparent:true, opacity:0.15, side:THREE.DoubleSide})
+  );
+  hubZoneMarker.rotation.x = -Math.PI/2;
+  hubZoneMarker.position.y = 0.011;
+  scene.add(hubZoneMarker);
+
+  // ---------- camera controls (hand-rolled orbit / pan / zoom) ----------
+  var target = new THREE.Vector3(0, CEILING_Y*0.45, 0);
+  var spherical = {radius: 7.5, theta: Math.PI*0.28, phi: Math.PI*0.36};
+  var DEFAULT_SPH = {radius:7.5, theta:Math.PI*0.28, phi:Math.PI*0.36};
+  var DEFAULT_TARGET = target.clone();
+
+  function applyCamera(){
+    var s = Math.max(0.001, Math.sin(spherical.phi));
+    camera.position.x = target.x + spherical.radius * s * Math.sin(spherical.theta);
+    camera.position.y = target.y + spherical.radius * Math.cos(spherical.phi);
+    camera.position.z = target.z + spherical.radius * s * Math.cos(spherical.theta);
+    camera.lookAt(target);
+  }
+  applyCamera();
+
+  var dragMode = null, lastX=0, lastY=0;
+  renderer.domElement.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  renderer.domElement.addEventListener('pointerdown', function(e){
+    dragMode = (e.button === 2 || e.shiftKey) ? 'pan' : 'orbit';
+    lastX = e.clientX; lastY = e.clientY;
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener('pointermove', function(e){
+    if(!dragMode) return;
+    var dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if(dragMode === 'orbit'){
+      spherical.theta -= dx * 0.006;
+      spherical.phi = Math.min(Math.PI*0.49, Math.max(0.08, spherical.phi - dy * 0.006));
+    } else {
+      var panSpeed = spherical.radius * 0.0012;
+      var right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      var up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      target.addScaledVector(right, -dx*panSpeed);
+      target.addScaledVector(up, dy*panSpeed);
+    }
+    applyCamera();
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(function(ev){
+    renderer.domElement.addEventListener(ev, function(){ dragMode = null; });
+  });
+  renderer.domElement.addEventListener('wheel', function(e){
+    e.preventDefault();
+    spherical.radius = Math.min(16, Math.max(2.5, spherical.radius * (1 + e.deltaY*0.001)));
+    applyCamera();
+  }, {passive:false});
+
+  document.getElementById('resetView').addEventListener('click', function(){
+    spherical.radius = DEFAULT_SPH.radius; spherical.theta = DEFAULT_SPH.theta; spherical.phi = DEFAULT_SPH.phi;
+    target.copy(DEFAULT_TARGET);
+    applyCamera();
+  });
+
+  window.addEventListener('resize', function(){
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // ---------- arms ----------
+  var L1 = 1.15, L2 = 0.95; // shoulder->elbow, elbow->tip
+  var segMat = new THREE.MeshStandardMaterial({color:0x2b332e, roughness:0.55, metalness:0.25});
+  var tipMatBase = new THREE.MeshStandardMaterial({color:0x3ddc97, emissive:0x0d2c20, roughness:0.4, metalness:0.2});
+
+  function buildArm(baseAngle, baseRadius, ring, phase){
+    var group = new THREE.Group();
+    group.position.set(Math.sin(baseAngle)*baseRadius, CEILING_Y, Math.cos(baseAngle)*baseRadius);
+
+    var yawPivot = new THREE.Group();
+    group.add(yawPivot);
+
+    var pitchPivot = new THREE.Group();
+    yawPivot.add(pitchPivot);
+
+    var upper = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, L1, 10), segMat);
+    upper.position.y = -L1/2;
+    pitchPivot.add(upper);
+
+    var elbowPivot = new THREE.Group();
+    elbowPivot.position.y = -L1;
+    pitchPivot.add(elbowPivot);
+
+    var lower = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, L2, 10), segMat);
+    lower.position.y = -L2/2;
+    elbowPivot.add(lower);
+
+    var tipMat = tipMatBase.clone();
+    var tip = new THREE.Mesh(new THREE.SphereGeometry(0.065, 14, 14), tipMat);
+    tip.position.y = -L2;
+    elbowPivot.add(tip);
+
+    scene.add(group);
+    return {
+      group:group, yaw:yawPivot, pitch:pitchPivot, elbow:elbowPivot, tipMat:tipMat,
+      base: group.position.clone(), ring: ring, phase: phase, reach: 0
+    };
+  }
+
+  var arms = [];
+  function rebuildArms(ringCount){
+    for(var i=0;i<arms.length;i++) scene.remove(arms[i].group);
+    arms = [];
+    arms.push(buildArm(0, 0, 0, Math.random()*6.28));
+    for(var r=1; r<=ringCount; r++){
+      var count = 5 + r*4;
+      var radius = r*1.05;
+      for(var i2=0;i2<count;i2++){
+        arms.push(buildArm((i2/count)*Math.PI*2 + r*0.3, radius, r, Math.random()*6.28));
+      }
+    }
+    document.getElementById('armsTotal').textContent = arms.length;
+  }
+
+  // ---------- state ----------
+  var state = {
+    ringCount: 3,
+    reachLimit: 100,    // % of L1+L2 used at full extension
+    falloff: 0.55,
+    delayMs: 140,
+    drift: 0.30,
+    foldOnCatch: true,
+    mode: 'idle',       // idle | reaching | caught
+    triggerPos: new THREE.Vector3(0,0,1.6),
+    triggerTime: 0,
+    caughtTime: 0
+  };
+  rebuildArms(state.ringCount);
+
+  // ---------- interaction: click floor to trigger / catch ----------
+  var raycaster = new THREE.Raycaster();
+  var mouse = new THREE.Vector2();
+  var downPos = null;
+  renderer.domElement.addEventListener('pointerdown', function(e){ downPos = {x:e.clientX, y:e.clientY}; });
+  renderer.domElement.addEventListener('pointerup', function(e){
+    if(!downPos) return;
+    var moved = Math.hypot(e.clientX-downPos.x, e.clientY-downPos.y);
+    downPos = null;
+    if(moved > 6) return; // was a drag, not a click
+
+    mouse.x = (e.clientX/innerWidth)*2 - 1;
+    mouse.y = -(e.clientY/innerHeight)*2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    var hit = raycaster.intersectObject(floor)[0];
+    if(!hit) return;
+
+    var distFromCenter = Math.hypot(hit.point.x, hit.point.z);
+    if(distFromCenter < 0.95 && state.mode === 'reaching'){
+      state.mode = 'caught';
+      state.caughtTime = performance.now();
+    } else {
+      state.mode = 'reaching';
+      state.triggerPos.copy(hit.point);
+      state.triggerTime = performance.now();
+      triggerMarker.position.x = hit.point.x;
+      triggerMarker.position.z = hit.point.z;
+    }
+  });
+
+  // ---------- dials ----------
+  function makeDial(mount, opts){
+    var size = 84, cx = size/2, cy = size/2, r = 32;
+    var sweep = Math.PI * 1.5; // 270 deg
+    var start = Math.PI*0.5 + Math.PI*0.25; // bottom-left start
+
+    var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('width', size); svg.setAttribute('height', size);
+    svg.setAttribute('viewBox', '0 0 '+size+' '+size);
+
+    function arcPath(fromA, toA){
+      var x1 = cx + r*Math.cos(fromA), y1 = cy + r*Math.sin(fromA);
+      var x2 = cx + r*Math.cos(toA), y2 = cy + r*Math.sin(toA);
+      var large = (toA-fromA) > Math.PI ? 1 : 0;
+      return 'M '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2;
+    }
+
+    var track = document.createElementNS('http://www.w3.org/2000/svg','path');
+    track.setAttribute('d', arcPath(start, start+sweep));
+    track.setAttribute('stroke', 'rgba(234,242,234,0.10)');
+    track.setAttribute('stroke-width', 6);
+    track.setAttribute('fill', 'none');
+    track.setAttribute('stroke-linecap','round');
+    svg.appendChild(track);
+
+    var fill = document.createElementNS('http://www.w3.org/2000/svg','path');
+    fill.setAttribute('stroke', opts.color || '#3ddc97');
+    fill.setAttribute('stroke-width', 6);
+    fill.setAttribute('fill', 'none');
+    fill.setAttribute('stroke-linecap','round');
+    svg.appendChild(fill);
+
+    var knob = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    knob.setAttribute('cx', cx); knob.setAttribute('cy', cy); knob.setAttribute('r', 4);
+    knob.setAttribute('fill', opts.color || '#3ddc97');
+    svg.appendChild(knob);
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dial-wrap';
+    wrap.appendChild(svg);
+    var label = document.createElement('div');
+    label.className = 'dial-label'; label.textContent = opts.label;
+    var value = document.createElement('div');
+    value.className = 'dial-value';
+    wrap.appendChild(value); wrap.appendChild(label);
+    mount.appendChild(wrap);
+
+    var val = opts.value;
+    function render(){
+      var t = (val - opts.min) / (opts.max - opts.min);
+      fill.setAttribute('d', arcPath(start, start + sweep*t));
+      var ang = start + sweep*t;
+      var kx = cx + r*Math.cos(ang), ky = cy + r*Math.sin(ang);
+      knob.setAttribute('cx', kx); knob.setAttribute('cy', ky);
+      value.textContent = opts.format ? opts.format(val) : val;
+    }
+    render();
+
+    var dragging = false, startY = 0, startVal = 0;
+    svg.addEventListener('pointerdown', function(e){
+      dragging = true; startY = e.clientY; startVal = val;
+      svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener('pointermove', function(e){
+      if(!dragging) return;
+      var dy = startY - e.clientY;
+      var range = opts.max - opts.min;
+      var next = startVal + (dy/120) * range;
+      val = Math.min(opts.max, Math.max(opts.min, next));
+      if(opts.step){ val = Math.round(val/opts.step)*opts.step; }
+      render();
+      opts.onChange(val);
+    });
+    ['pointerup','pointercancel'].forEach(function(ev){
+      svg.addEventListener(ev, function(){ dragging = false; });
+    });
+
+    return {set:function(v){ val=v; render(); }};
+  }
+
+  makeDial(document.getElementById('dialRings'), {
+    label:'rings', min:1, max:4, step:1, value:state.ringCount, color:'#3ddc97',
+    format:function(v){ return v; },
+    onChange:function(v){ state.ringCount = v; rebuildArms(v); document.getElementById('ringsLive').textContent = v; }
+  });
+
+  makeDial(document.getElementById('dialReach'), {
+    label:'reach limit', min:40, max:100, step:1, value:state.reachLimit, color:'#e08a4a',
+    format:function(v){ return v+'%'; },
+    onChange:function(v){ state.reachLimit = v; }
+  });
+
+  // ---------- sliders ----------
+  document.getElementById('sliderFalloff').addEventListener('input', function(e){
+    state.falloff = e.target.value/100;
+    document.getElementById('valFalloff').textContent = e.target.value+'%';
+  });
+  document.getElementById('sliderDelay').addEventListener('input', function(e){
+    state.delayMs = +e.target.value;
+    document.getElementById('valDelay').textContent = e.target.value+' ms';
+  });
+  document.getElementById('sliderDrift').addEventListener('input', function(e){
+    state.drift = e.target.value/100;
+    document.getElementById('valDrift').textContent = e.target.value+'%';
+  });
+
+  var modeFold = document.getElementById('modeFold'), modeReset = document.getElementById('modeReset');
+  modeFold.addEventListener('click', function(){ state.foldOnCatch = true; modeFold.classList.add('active'); modeReset.classList.remove('active'); });
+  modeReset.addEventListener('click', function(){ state.foldOnCatch = false; modeReset.classList.add('active'); modeFold.classList.remove('active'); });
+
+  document.getElementById('ringsLive').textContent = state.ringCount;
+
+  // ---------- IK ----------
+  var tmpVec = new THREE.Vector3();
+  function solveArm(arm, targetWorld, reachAmount){
+    tmpVec.copy(targetWorld).sub(arm.base);
+    var yaw = Math.atan2(tmpVec.x, tmpVec.z);
+    var horiz = Math.hypot(tmpVec.x, tmpVec.z);
+    var down = -tmpVec.y; // positive when target is below base
+
+    var maxReach = (L1+L2) * (state.reachLimit/100);
+    var idleDown = (L1+L2)*0.72; // resting hang
+    var d = Math.hypot(horiz, down);
+    d = Math.min(d, maxReach);
+    d = Math.max(d, Math.abs(L1-L2)+0.02);
+
+    var cosElbow = (L1*L1 + L2*L2 - d*d) / (2*L1*L2);
+    cosElbow = Math.min(1, Math.max(-1, cosElbow));
+    var elbowAngle = Math.PI - Math.acos(cosElbow);
+
+    var cosShoulder = (L1*L1 + d*d - L2*L2) / (2*L1*d);
+    cosShoulder = Math.min(1, Math.max(-1, cosShoulder));
+    var baseAngleToTarget = Math.atan2(horiz, down === 0 ? 0.0001 : down);
+    var shoulderAngle = baseAngleToTarget - Math.acos(cosShoulder);
+
+    // idle rest pose: hanging ~straight down, gentle droop
+    var idleShoulder = 0.12, idleElbow = 0.28;
+
+    var finalShoulder = idleShoulder + (shoulderAngle - idleShoulder) * reachAmount;
+    var finalElbow = idleElbow + (elbowAngle - idleElbow) * reachAmount;
+
+    arm.yaw.rotation.y = yaw * reachAmount + (1-reachAmount)*arm.yaw.rotation.y*0.9;
+    arm.pitch.rotation.x = finalShoulder;
+    arm.elbow.rotation.x = -finalElbow;
+  }
+
+  // ---------- animate ----------
+  var clock = new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    var t = clock.getElapsedTime();
+    var now = performance.now();
+
+    var statePill = document.getElementById('statePill');
+    statePill.textContent = state.mode.toUpperCase();
+    statePill.className = 'state-pill' + (state.mode==='caught' ? ' caught':'');
+
+    var d0 = Math.hypot(state.triggerPos.x, state.triggerPos.z);
+    document.getElementById('tofRange').textContent = state.mode==='idle' ? '—' : Math.round(d0*180)+' mm';
+
+    triggerMarker.material.opacity = state.mode==='reaching' ? 0.7 : (state.mode==='caught' ? 0.25 : 0);
+    triggerMarker.scale.setScalar(1 + Math.sin(t*4)*0.08);
+    triggerLight.position.set(state.triggerPos.x, 0.6, state.triggerPos.z);
+    triggerLight.intensity = state.mode==='reaching' ? 1.2 : 0;
+    hubZoneMarker.material.opacity = state.mode==='reaching' ? 0.28 : 0.08;
+
+    var foldElapsed = state.mode==='caught' ? now - state.caughtTime : 0;
+    if(state.mode==='caught' && foldElapsed > 1600){
+      state.mode = 'idle';
+    }
+
+    for(var i=0;i<arms.length;i++){
+      var arm = arms[i];
+      var target, reachAmount;
+
+      if(state.mode==='idle'){
+        target = new THREE.Vector3(arm.base.x*0.3, FLOOR_Y, arm.base.z*0.3);
+        reachAmount = state.drift * (0.5 + 0.5*Math.sin(t*0.6 + arm.phase));
+      } else if(state.mode==='reaching'){
+        var delay = arm.ring * state.delayMs;
+        var elapsed = now - state.triggerTime - delay;
+        var envelope = elapsed <= 0 ? 0 : Math.min(1, elapsed/260);
+        var ringDecay = Math.pow(1-state.falloff, arm.ring);
+        target = state.triggerPos;
+        reachAmount = envelope * ringDecay + 0.06*Math.sin(t*0.6+arm.phase)*(1-envelope);
+      } else { // caught
+        var foldT = Math.min(1, foldElapsed/900);
+        if(state.foldOnCatch){
+          target = new THREE.Vector3(arm.base.x*0.08, CEILING_Y - 0.55, arm.base.z*0.08);
+          reachAmount = foldT;
+        } else {
+          target = new THREE.Vector3(arm.base.x*0.3, FLOOR_Y, arm.base.z*0.3);
+          reachAmount = state.drift * (1-foldT);
+        }
+      }
+
+      arm.reach += (reachAmount - arm.reach) * 0.15;
+      solveArm(arm, target, Math.min(1, Math.max(0, arm.reach)));
+
+      var glow = arm.ring===0 && state.mode==='caught' ? 1 : arm.reach;
+      arm.tipMat.emissive.setRGB(0.05 + glow*0.15, 0.17 + glow*0.45, 0.13 + glow*0.35);
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
