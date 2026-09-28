@@ -30,7 +30,7 @@ From v7.0 the servos run off a PCA9685, not direct GPIO. Direct GPIO (v3 to
 v6.1) topped out at 20 channels and needed soldered underside pads, which a
 replacement SuperMini doesn't have.
 
-- PCA9685 at 0x40: SDA GPIO10, SCL GPIO9, VCC 3V3, OE unconnected.
+- PCA9685 at 0x40: SDA GPIO9, SCL GPIO10, VCC 3V3, OE unconnected.
 - Servo power into the PCA9685's V+ screw terminal only, never the ESP's 5V
   pin. Ground shared with the ESP.
 - SuperMini "VIN" is the 5V rail feeding a ~6V abs max regulator. 19V killed

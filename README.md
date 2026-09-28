@@ -23,7 +23,7 @@ MCPWM, 20 channels max), shown here at bring-up:
 
 <img src="docs/images/tuft-controller-wiring.jpg" width="420" alt="ESP32-S3 SuperMini and breadboard wiring for the 16-channel controller">
 
-From v7.0 they run off a PCA9685 over I2C (SDA GPIO10, SCL GPIO9), which frees
+From v7.0 they run off a PCA9685 over I2C (SDA GPIO9, SCL GPIO10), which frees
 the ESP's pins and scales by adding boards.
 
 Firmware lives in [`firmware/`](firmware/), one folder per version, see its
