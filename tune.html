@@ -29,7 +29,7 @@
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; }
   .grid button { aspect-ratio: 1; font-size: 20px; font-weight: 700; padding: 0; }
   .grid button.sel { background: var(--accent); color: #000; border-color: var(--accent); }
-  #patterns button.sel { background: var(--cyan); color: #000; border-color: var(--cyan); }
+  #pulses button.sel, #patterns button.sel { background: var(--cyan); color: #000; border-color: var(--cyan); }
   .grid button.corner:not(.sel) { border-color: var(--warn); }
   .hint { color: var(--text); font-size: 14px; margin-top: 8px; }
   label { display: block; margin: 14px 0 4px; font-weight: 600; }
@@ -78,6 +78,9 @@
       <label>Wave lag between neighbours <span id="lV"></span></label>
       <input id="l" type="range" min="0" max="180" step="5" value="90">
       <p class="hint">Changing pattern or lag eases everything to centre first, then back in.</p>
+      <label>Servo pulses</label>
+      <div class="btns" id="pulses" style="margin-top:0"></div>
+      <p class="hint">Together = every servo pulsed at the same instant (how v7 breeze did it). Staggered = spread across the frame, so their current bursts don't stack.</p>
       <div class="btns">
         <button id="go" class="go">Sway</button>
         <button id="stop" class="stop">Ease to stop</button>
@@ -104,6 +107,7 @@
         <span>Servos swaying</span><b id="lServo">-</b>
         <span>Amplitude now / target</span><b id="lAmp">-</b>
         <span>Pattern</span><b id="lPat">-</b>
+        <span>Pulses</span><b id="lPulse">-</b>
         <span>Frame time (want 20 ms)</span><b id="lTick">-</b>
         <span>I2C readback errors</span><b id="lI2c">-</b>
       </div>
@@ -122,6 +126,7 @@ const DEG_PER_TICK = (1e6 / 50 / 4096) * 180 / 1900;   // 4.88us over 1900us for
 const ROD_MM = 1100;
 let port, writer, chosen = new Set([1]), pattern = 0;
 const PATTERNS = ['In step', 'Wave', 'Scattered'];
+let stagger = 1;
 const PAGE_VERSION = '1.2';
 const FIRMWARE_VERSION = '1.2';   // tuft_pca16_tune_v1_2; bump both together
 $('pagever').textContent = PAGE_VERSION;
@@ -173,6 +178,17 @@ function paintPatterns() {
 }
 paintPatterns();
 
+['Together', 'Staggered'].forEach((name, i) => {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { stagger = i; paintPulses(); send('O' + i); };
+  $('pulses').appendChild(b);
+});
+function paintPulses() {
+  [...$('pulses').children].forEach((b, i) => b.classList.toggle('sel', i === stagger));
+}
+paintPulses();
+
 function log(s) {
   const el = $('log');
   el.textContent += s + '\n';
@@ -216,15 +232,16 @@ $('go').onclick = () => send('G');
 $('stop').onclick = () => send('X');
 
 function parseStatus(line) {
-  const m = line.match(/^st n (\d+) amp ([\d.]+)\/([\d.]+) period ([\d.]+) centre ([\d.]+) run (\d) pattern (\d) lag ([\d.]+) frame (\d+) i2c (\d+)\/(\d+)/);
+  const m = line.match(/^st n (\d+) amp ([\d.]+)\/([\d.]+) period ([\d.]+) centre ([\d.]+) run (\d) pattern (\d) lag ([\d.]+) stagger (\d) frame (\d+) i2c (\d+)\/(\d+)/);
   if (!m) return false;
   $('lServo').textContent = m[1] + (m[6] === '1' ? '' : ' (stopped)');
   $('lAmp').textContent = (+m[2]).toFixed(2) + ' / ' + (+m[3]).toFixed(2) + ' deg';
   $('lPat').textContent = PATTERNS[+m[7]] + (m[7] === '1' ? ', lag ' + m[8] + ' deg' : '');
-  $('lTick').textContent = m[9] + ' ms';
-  $('lTick').className = +m[9] > 25 ? 'bad' : '';
-  $('lI2c').textContent = m[10] + ' / ' + m[11];
-  $('lI2c').className = +m[10] ? 'bad' : '';
+  $('lPulse').textContent = m[9] === '1' ? 'Staggered' : 'Together';
+  $('lTick').textContent = m[10] + ' ms';
+  $('lTick').className = +m[10] > 25 ? 'bad' : '';
+  $('lI2c').textContent = m[11] + ' / ' + m[12];
+  $('lI2c').className = +m[11] ? 'bad' : '';
   return true;
 }
 
@@ -242,6 +259,7 @@ $('connect').onclick = async () => {
     await send('C' + $('c').value);
     await send('W' + pattern);
     await send('L' + $('l').value);
+    await send('O' + stagger);
     readLoop();
     await send('V');
   } catch (e) {

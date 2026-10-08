@@ -4,6 +4,12 @@
  *
  * tune v1.2. Adds the V command so tune.html can confirm it is talking to
  * the firmware it was written for, instead of silently mis-parsing.
+ * Also staggered pulses (O command). Up to ~12 servos were smooth, beyond
+ * that jittery whatever the pattern, pressing the lid didn't help, and the
+ * buck held 5.21V on a meter. The PCA starts every channel's pulse at tick 0,
+ * so all 16 digital servos draw their per-pulse current burst at the same
+ * instant, 50 times a second: a spike a meter averages away. Staggering
+ * spreads the 16 pulse starts evenly across the 20ms frame.
  *
  * tune v1.1. Any set of servos, swaying together, in step or as a wave.
  * v1.0 showed one servo is smooth at 9-12 deg over 4-5 s, which is about
@@ -22,6 +28,7 @@
  *   L deg   wave lag between neighbouring servos, degrees of the cycle
  *   G / X   go / stop. Stop eases everything out to centre.
  *   ?       print state
+ *   O n     pulse starts: 1 staggered across the frame (default), 0 all at tick 0
  *   V       print "ver <VERSION>" so tune.html can check it matches
  * A pattern or lag change eases every servo to centre, swaps the phases,
  * then eases back in, so nothing jumps.
@@ -59,6 +66,7 @@ float ampTarget = 3.0, amp[16];
 float period = 6.0;
 float centre = 90.0, centreTarget = 90.0;
 bool  running = false;
+bool  stagger = true;
 float phase = 0;
 int   pattern = 0, patternNext = 0;
 float lagDeg = 90, lagNext = 90;
@@ -79,9 +87,10 @@ uint16_t degToTick(float deg) {
 
 void writeDeg(int i, float deg) {
   if (!pcaOk) return;
-  uint16_t off = degToTick(deg);
+  uint16_t on = stagger ? i * (4096 / ACTIVE_COUNT) : 0;
+  uint16_t off = (on + degToTick(deg)) & 0x0FFF;
   if (off == lastOff[i]) return;
-  pca.setPWM(i, 0, off);
+  pca.setPWM(i, on, off);
   lastOff[i] = off;
 }
 
@@ -109,7 +118,9 @@ void readLivePositions(float *deg) {
   bool asleep = mode1 & 0x10;
   float usPerTick = (pre + 1) * 1000000.0f / OSC_HZ;
   for (int i = 0; i < ACTIVE_COUNT; i++) {
+    uint16_t on  = readReg(0x06 + 4 * i) | ((readReg(0x07 + 4 * i) & 0x0F) << 8);
     uint16_t off = readReg(0x08 + 4 * i) | ((readReg(0x09 + 4 * i) & 0x0F) << 8);
+    off = (off - on) & 0x0FFF;                      // pulse length, staggered or not
     float us = off * usPerTick;
     deg[i] = (!asleep && us >= MIN_US && us <= MAX_US)
              ? (us - MIN_US) / (MAX_US - MIN_US) * 180.0f : -1;
@@ -136,9 +147,9 @@ void printState() {
     if (mask >> i & 1) n++;
     if (amp[i] > a) a = amp[i];
   }
-  Serial.printf("st n %d amp %.2f/%.2f period %.1f centre %.1f run %d pattern %d lag %.0f frame %lu i2c %lu/%lu\n",
+  Serial.printf("st n %d amp %.2f/%.2f period %.1f centre %.1f run %d pattern %d lag %.0f stagger %d frame %lu i2c %lu/%lu\n",
                 n, a, ampTarget, period, centreTarget, running ? 1 : 0,
-                patternNext, lagNext, frameMs, busBad, busChecks);
+                patternNext, lagNext, stagger ? 1 : 0, frameMs, busBad, busChecks);
 }
 
 void handleLine(char *line) {
@@ -150,6 +161,10 @@ void handleLine(char *line) {
     case 'A': ampTarget = constrain(v, 0.0f, 30.0f); break;
     case 'P': period = constrain(v, 0.5f, 60.0f); break;
     case 'C': centreTarget = constrain(v, 60.0f, 120.0f); break;
+    case 'O':
+      stagger = v != 0;
+      memset(lastOff, 0, sizeof(lastOff));          // force every channel to rewrite
+      break;
     case 'W': if (v >= 0 && v <= 2) patternNext = (int)v; break;
     case 'L': lagNext = constrain(v, 0.0f, 180.0f); break;
     case 'G': running = true; break;
