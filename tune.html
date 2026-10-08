@@ -29,6 +29,7 @@
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; }
   .grid button { aspect-ratio: 1; font-size: 20px; font-weight: 700; padding: 0; }
   .grid button.sel { background: var(--accent); color: #000; border-color: var(--accent); }
+  #patterns button.sel { background: var(--cyan); color: #000; border-color: var(--cyan); }
   .grid button.corner:not(.sel) { border-color: var(--warn); }
   .hint { color: var(--text); font-size: 14px; margin-top: 8px; }
   label { display: block; margin: 14px 0 4px; font-weight: 600; }
@@ -46,7 +47,7 @@
 <body>
 <main>
   <h1>Tuft sway tuner</h1>
-  <p class="sub">One servo, gentle sway, everything else holds still. Needs firmware tuft_pca16_tune_v1_0 and Chrome or Edge.</p>
+  <p class="sub">Any set of servos, in step or as a wave, everything else holds still. Needs firmware tuft_pca16_tune_v1_1 and Chrome or Edge.</p>
   <div id="nosupport">This browser has no Web Serial. Open the page in Chrome or Edge.</div>
 
   <div class="row">
@@ -54,19 +55,26 @@
       <h2>Connection</h2>
       <button id="connect">Connect to ESP</button>
       <p>Status: <span id="status" class="off">not connected</span></p>
-      <h2 style="margin-top:16px">Servo (as seen from the front)</h2>
+      <h2 style="margin-top:16px">Which servos sway (as seen from the front)</h2>
       <div class="grid" id="grid"></div>
-      <p class="hint">Orange outline = corner. The old servo eases home before the new one starts.</p>
+      <p class="hint">Click to add or remove. Orange outline = corner. Servos ease in and out on their own.</p>
+      <div class="btns" id="presets"></div>
+      <p>Moving: <b id="count" style="color:var(--accent)">1</b></p>
     </div>
 
     <div class="card">
       <h2>Sway</h2>
       <label>Amplitude (+- deg) <span id="aV"></span></label>
-      <input id="a" type="range" min="0" max="15" step="0.25" value="3">
+      <input id="a" type="range" min="0" max="15" step="0.25" value="10">
       <label>Period (s per full swing) <span id="pV"></span></label>
-      <input id="p" type="range" min="1" max="30" step="0.5" value="6">
+      <input id="p" type="range" min="1" max="30" step="0.5" value="4.5">
       <label>Centre (deg, all servos) <span id="cV"></span></label>
       <input id="c" type="range" min="70" max="110" step="1" value="90">
+      <label>Pattern</label>
+      <div class="btns" id="patterns" style="margin-top:0"></div>
+      <label>Wave lag between neighbours <span id="lV"></span></label>
+      <input id="l" type="range" min="0" max="180" step="5" value="90">
+      <p class="hint">Changing pattern or lag eases everything to centre first, then back in.</p>
       <div class="btns">
         <button id="go" class="go">Sway</button>
         <button id="stop" class="stop">Ease to stop</button>
@@ -90,9 +98,10 @@
     <div class="card">
       <h2>Live from the board</h2>
       <div class="stats">
-        <span>Swaying servo</span><b id="lServo">-</b>
+        <span>Servos swaying</span><b id="lServo">-</b>
         <span>Amplitude now / target</span><b id="lAmp">-</b>
-        <span>PCA tick on that channel</span><b id="lTick">-</b>
+        <span>Pattern</span><b id="lPat">-</b>
+        <span>Frame time (want 20 ms)</span><b id="lTick">-</b>
         <span>I2C readback errors</span><b id="lI2c">-</b>
       </div>
     </div>
@@ -108,7 +117,8 @@
 const $ = id => document.getElementById(id);
 const DEG_PER_TICK = (1e6 / 50 / 4096) * 180 / 1900;   // 4.88us over 1900us for 180 deg
 const ROD_MM = 1100;
-let port, writer, selected = 1;
+let port, writer, chosen = new Set([1]), pattern = 0;
+const PATTERNS = ['In step', 'Wave', 'Scattered'];
 
 if (!('serial' in navigator)) $('nosupport').style.display = 'block';
 
@@ -119,13 +129,43 @@ for (let r = 3; r >= 0; r--) for (let c = 0; c < 4; c++) {
   b.textContent = n;
   b.dataset.n = n;
   if (corners.includes(n)) b.classList.add('corner');
-  b.onclick = () => { selected = n; paintGrid(); send('S' + n); };
+  b.onclick = () => { chosen.has(n) ? chosen.delete(n) : chosen.add(n); sendMask(); };
   $('grid').appendChild(b);
 }
 function paintGrid() {
-  for (const b of $('grid').children) b.classList.toggle('sel', +b.dataset.n === selected);
+  for (const b of $('grid').children) b.classList.toggle('sel', chosen.has(+b.dataset.n));
+  $('count').textContent = chosen.size;
+}
+function sendMask() {
+  paintGrid();
+  let m = 0;
+  for (const n of chosen) m |= 1 << (n - 1);
+  send('M' + m);
 }
 paintGrid();
+
+// presets, roughly doubling so a breaking point shows up
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+for (const [name, set] of [
+  ['1', [1]], ['2', [1, 2]], ['4 (2x2)', [1, 2, 5, 6]], ['Bottom row', range(1, 4)],
+  ['8 (2 rows)', range(1, 8)], ['All 16', range(1, 16)], ['None', []],
+]) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { chosen = new Set(set); sendMask(); };
+  $('presets').appendChild(b);
+}
+
+PATTERNS.forEach((name, i) => {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { pattern = i; paintPatterns(); send('W' + i); };
+  $('patterns').appendChild(b);
+});
+function paintPatterns() {
+  [...$('patterns').children].forEach((b, i) => b.classList.toggle('sel', i === pattern));
+}
+paintPatterns();
 
 function log(s) {
   const el = $('log');
@@ -145,6 +185,7 @@ function updateMaths() {
   $('aV').textContent = a.toFixed(2) + ' deg';
   $('pV').textContent = p.toFixed(1) + ' s';
   $('cV').textContent = c + ' deg';
+  $('lV').textContent = $('l').value + ' deg of the cycle';
   const rad = a * Math.PI / 180;
   const vel = 2 * Math.PI * a / p;                    // deg/s peak
   const steps = 2 * a / DEG_PER_TICK;
@@ -159,7 +200,7 @@ function updateMaths() {
 }
 
 // sliders: maths live while dragging, command on release
-for (const [id, cmd] of [['a', 'A'], ['p', 'P'], ['c', 'C']]) {
+for (const [id, cmd] of [['a', 'A'], ['p', 'P'], ['c', 'C'], ['l', 'L']]) {
   $(id).addEventListener('input', updateMaths);
   $(id).addEventListener('change', () => send(cmd + $(id).value));
 }
@@ -169,14 +210,15 @@ $('go').onclick = () => send('G');
 $('stop').onclick = () => send('X');
 
 function parseStatus(line) {
-  const m = line.match(/^st servo (\d+) amp ([\d.]+)\/([\d.]+) period ([\d.]+) centre ([\d.]+) run (\d) tick (\d+) i2c (\d+)\/(\d+)/);
+  const m = line.match(/^st n (\d+) amp ([\d.]+)\/([\d.]+) period ([\d.]+) centre ([\d.]+) run (\d) pattern (\d) lag ([\d.]+) frame (\d+) i2c (\d+)\/(\d+)/);
   if (!m) return false;
-  $('lServo').textContent = m[1];
+  $('lServo').textContent = m[1] + (m[6] === '1' ? '' : ' (stopped)');
   $('lAmp').textContent = (+m[2]).toFixed(2) + ' / ' + (+m[3]).toFixed(2) + ' deg';
-  $('lTick').textContent = m[7];
-  const bad = +m[8];
-  $('lI2c').textContent = m[8] + ' / ' + m[9];
-  $('lI2c').className = bad ? 'bad' : '';
+  $('lPat').textContent = PATTERNS[+m[7]] + (m[7] === '1' ? ', lag ' + m[8] + ' deg' : '');
+  $('lTick').textContent = m[9] + ' ms';
+  $('lTick').className = +m[9] > 25 ? 'bad' : '';
+  $('lI2c').textContent = m[10] + ' / ' + m[11];
+  $('lI2c').className = +m[10] ? 'bad' : '';
   return true;
 }
 
@@ -188,10 +230,12 @@ $('connect').onclick = async () => {
     $('status').textContent = 'connected';
     $('status').className = 'ok';
     // push the page's settings so board and page agree
-    await send('S' + selected);
+    sendMask();
     await send('A' + $('a').value);
     await send('P' + $('p').value);
     await send('C' + $('c').value);
+    await send('W' + pattern);
+    await send('L' + $('l').value);
     readLoop();
   } catch (e) {
     $('status').textContent = 'failed: ' + e.message;
