@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tuft Sway Tuner</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d;
+    --text: #f0f6fc; --accent: #3fb950; --warn: #ffb347; --bad: #ff6b6b; --cyan: #58d6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--cyan); margin: 0 0 16px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; flex: 1 1 300px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
+  button { font: inherit; color: var(--text); background: #21262d; border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+  button:hover { border-color: var(--cyan); }
+  button.go { background: #1f6f3a; border-color: var(--accent); }
+  button.stop { background: #6e2a2a; border-color: var(--bad); }
+  #status { font-weight: 600; }
+  #status.ok { color: var(--accent); } #status.off { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; }
+  .grid button { aspect-ratio: 1; font-size: 20px; font-weight: 700; padding: 0; }
+  .grid button.sel { background: var(--accent); color: #000; border-color: var(--accent); }
+  .grid button.corner:not(.sel) { border-color: var(--warn); }
+  .hint { color: var(--text); font-size: 14px; margin-top: 8px; }
+  label { display: block; margin: 14px 0 4px; font-weight: 600; }
+  label span { color: var(--accent); float: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--accent); text-align: right; }
+  .stats b.warn { color: var(--warn); } .stats b.bad { color: var(--bad); }
+  pre { background: #010409; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+        height: 180px; overflow: auto; font-size: 13px; color: var(--text); margin: 0; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  #nosupport { display: none; background: #6e2a2a; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tuft sway tuner</h1>
+  <p class="sub">One servo, gentle sway, everything else holds still. Needs firmware tuft_pca16_tune_v1_0 and Chrome or Edge.</p>
+  <div id="nosupport">This browser has no Web Serial. Open the page in Chrome or Edge.</div>
+
+  <div class="row">
+    <div class="card">
+      <h2>Connection</h2>
+      <button id="connect">Connect to ESP</button>
+      <p>Status: <span id="status" class="off">not connected</span></p>
+      <h2 style="margin-top:16px">Servo (as seen from the front)</h2>
+      <div class="grid" id="grid"></div>
+      <p class="hint">Orange outline = corner. The old servo eases home before the new one starts.</p>
+    </div>
+
+    <div class="card">
+      <h2>Sway</h2>
+      <label>Amplitude (+- deg) <span id="aV"></span></label>
+      <input id="a" type="range" min="0" max="15" step="0.25" value="3">
+      <label>Period (s per full swing) <span id="pV"></span></label>
+      <input id="p" type="range" min="1" max="30" step="0.5" value="6">
+      <label>Centre (deg, all servos) <span id="cV"></span></label>
+      <input id="c" type="range" min="70" max="110" step="1" value="90">
+      <div class="btns">
+        <button id="go" class="go">Sway</button>
+        <button id="stop" class="stop">Ease to stop</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:16px">
+    <div class="card">
+      <h2>What that means at the tip</h2>
+      <div class="stats">
+        <span>Tip travel each way (1.1 m rod)</span><b id="sTip"></b>
+        <span>Peak servo speed</span><b id="sVel"></b>
+        <span>Peak tip speed</span><b id="sTipVel"></b>
+        <span>PCA steps across the whole sway</span><b id="sSteps"></b>
+        <span>Steps per second at the fastest point</span><b id="sRate"></b>
+        <span>Size of one step at the tip</span><b>~8.8 mm</b>
+      </div>
+      <p class="hint">Under about 10 steps per second, each step is likely to show as a separate tick of the rod.</p>
+    </div>
+    <div class="card">
+      <h2>Live from the board</h2>
+      <div class="stats">
+        <span>Swaying servo</span><b id="lServo">-</b>
+        <span>Amplitude now / target</span><b id="lAmp">-</b>
+        <span>PCA tick on that channel</span><b id="lTick">-</b>
+        <span>I2C readback errors</span><b id="lI2c">-</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Serial log</h2>
+    <pre id="log"></pre>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEG_PER_TICK = (1e6 / 50 / 4096) * 180 / 1900;   // 4.88us over 1900us for 180 deg
+const ROD_MM = 1100;
+let port, writer, selected = 1;
+
+if (!('serial' in navigator)) $('nosupport').style.display = 'block';
+
+// grid: top row 13-16 down to 1-4, bottom-left is servo 1
+const corners = [1, 4, 13, 16];
+for (let r = 3; r >= 0; r--) for (let c = 0; c < 4; c++) {
+  const n = r * 4 + c + 1, b = document.createElement('button');
+  b.textContent = n;
+  b.dataset.n = n;
+  if (corners.includes(n)) b.classList.add('corner');
+  b.onclick = () => { selected = n; paintGrid(); send('S' + n); };
+  $('grid').appendChild(b);
+}
+function paintGrid() {
+  for (const b of $('grid').children) b.classList.toggle('sel', +b.dataset.n === selected);
+}
+paintGrid();
+
+function log(s) {
+  const el = $('log');
+  el.textContent += s + '\n';
+  if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-15000);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function send(cmd) {
+  if (!writer) return;
+  await writer.write(new TextEncoder().encode(cmd + '\n'));
+  log('> ' + cmd);
+}
+
+function updateMaths() {
+  const a = +$('a').value, p = +$('p').value, c = +$('c').value;
+  $('aV').textContent = a.toFixed(2) + ' deg';
+  $('pV').textContent = p.toFixed(1) + ' s';
+  $('cV').textContent = c + ' deg';
+  const rad = a * Math.PI / 180;
+  const vel = 2 * Math.PI * a / p;                    // deg/s peak
+  const steps = 2 * a / DEG_PER_TICK;
+  const rate = vel / DEG_PER_TICK;
+  $('sTip').textContent = (ROD_MM * Math.sin(rad)).toFixed(0) + ' mm';
+  $('sVel').textContent = vel.toFixed(1) + ' deg/s';
+  $('sTipVel').textContent = (ROD_MM * vel * Math.PI / 180).toFixed(0) + ' mm/s';
+  $('sSteps').textContent = steps.toFixed(0);
+  const r = $('sRate');
+  r.textContent = rate.toFixed(1);
+  r.className = rate < 5 ? 'bad' : rate < 10 ? 'warn' : '';
+}
+
+// sliders: maths live while dragging, command on release
+for (const [id, cmd] of [['a', 'A'], ['p', 'P'], ['c', 'C']]) {
+  $(id).addEventListener('input', updateMaths);
+  $(id).addEventListener('change', () => send(cmd + $(id).value));
+}
+updateMaths();
+
+$('go').onclick = () => send('G');
+$('stop').onclick = () => send('X');
+
+function parseStatus(line) {
+  const m = line.match(/^st servo (\d+) amp ([\d.]+)\/([\d.]+) period ([\d.]+) centre ([\d.]+) run (\d) tick (\d+) i2c (\d+)\/(\d+)/);
+  if (!m) return false;
+  $('lServo').textContent = m[1];
+  $('lAmp').textContent = (+m[2]).toFixed(2) + ' / ' + (+m[3]).toFixed(2) + ' deg';
+  $('lTick').textContent = m[7];
+  const bad = +m[8];
+  $('lI2c').textContent = m[8] + ' / ' + m[9];
+  $('lI2c').className = bad ? 'bad' : '';
+  return true;
+}
+
+$('connect').onclick = async () => {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    $('status').textContent = 'connected';
+    $('status').className = 'ok';
+    // push the page's settings so board and page agree
+    await send('S' + selected);
+    await send('A' + $('a').value);
+    await send('P' + $('p').value);
+    await send('C' + $('c').value);
+    readLoop();
+  } catch (e) {
+    $('status').textContent = 'failed: ' + e.message;
+    $('status').className = 'off';
+  }
+};
+
+async function readLoop() {
+  const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line) continue;
+        if (!parseStatus(line)) log(line);
+      }
+    }
+  } catch (e) {
+    log('serial closed: ' + e.message);
+  }
+  $('status').textContent = 'disconnected';
+  $('status').className = 'off';
+  writer = null;
+}
+</script>
+</body>
+</html>
