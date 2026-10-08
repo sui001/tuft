@@ -26,6 +26,11 @@ MCPWM, 20 channels max), shown here at bring-up:
 From v7.0 they run off a PCA9685 over I2C (SDA GPIO9, SCL GPIO10), which frees
 the ESP's pins and scales by adding boards.
 
+**Sway tuner: [sui001.github.io/tuft/tune.html](https://sui001.github.io/tuft/tune.html)**
+(Chrome/Edge, USB). Drives `firmware/tuft_pca16_tune_v1_2` over Web Serial: pick any
+set of servos, sway size, period, in step / wave / scattered. The page shows its own
+version and the firmware's, and warns if they don't match.
+
 Firmware lives in [`firmware/`](firmware/), one folder per version, see its
 history for the bring-up (10-bit vs 14-bit PWM resolution, the S3's 8-channel
 LEDC limit, extending to MCPWM, then moving to the PCA9685).

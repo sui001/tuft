@@ -41,13 +41,16 @@
   pre { background: #010409; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
         height: 180px; overflow: auto; font-size: 13px; color: var(--text); margin: 0; }
   .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .ver { font: 600 13px ui-monospace, monospace; color: var(--cyan); float: right; margin-top: 6px; }
+  #fwver.bad { color: var(--bad); } #fwver.ok { color: var(--accent); }
   #nosupport { display: none; background: #6e2a2a; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
 </style>
 </head>
 <body>
 <main>
+  <span class="ver">page v<span id="pagever"></span> / firmware <span id="fwver">?</span></span>
   <h1>Tuft sway tuner</h1>
-  <p class="sub">Any set of servos, in step or as a wave, everything else holds still. Needs firmware tuft_pca16_tune_v1_1 and Chrome or Edge.</p>
+  <p class="sub">Any set of servos, in step or as a wave, everything else holds still. Needs firmware tuft_pca16_tune_v1_2 and Chrome or Edge.</p>
   <div id="nosupport">This browser has no Web Serial. Open the page in Chrome or Edge.</div>
 
   <div class="row">
@@ -119,6 +122,9 @@ const DEG_PER_TICK = (1e6 / 50 / 4096) * 180 / 1900;   // 4.88us over 1900us for
 const ROD_MM = 1100;
 let port, writer, chosen = new Set([1]), pattern = 0;
 const PATTERNS = ['In step', 'Wave', 'Scattered'];
+const PAGE_VERSION = '1.2';
+const FIRMWARE_VERSION = '1.2';   // tuft_pca16_tune_v1_2; bump both together
+$('pagever').textContent = PAGE_VERSION;
 
 if (!('serial' in navigator)) $('nosupport').style.display = 'block';
 
@@ -237,11 +243,24 @@ $('connect').onclick = async () => {
     await send('W' + pattern);
     await send('L' + $('l').value);
     readLoop();
+    await send('V');
   } catch (e) {
     $('status').textContent = 'failed: ' + e.message;
     $('status').className = 'off';
   }
 };
+
+function checkVersion(v) {
+  const el = $('fwver');
+  if (v === FIRMWARE_VERSION) {
+    el.textContent = 'v' + v;
+    el.className = 'ok';
+  } else {
+    el.textContent = 'v' + v + ', page wants v' + FIRMWARE_VERSION;
+    el.className = 'bad';
+    log('!! firmware v' + v + ' but this page is written for v' + FIRMWARE_VERSION + ', controls may not work');
+  }
+}
 
 async function readLoop() {
   const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
@@ -256,6 +275,8 @@ async function readLoop() {
         const line = buf.slice(0, i).trim();
         buf = buf.slice(i + 1);
         if (!line) continue;
+        if (line.startsWith('ver ')) checkVersion(line.slice(4));
+        if (line === "err unknown 'V'") checkVersion('1.1 or older');
         if (!parseStatus(line)) log(line);
       }
     }
