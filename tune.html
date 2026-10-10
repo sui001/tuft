@@ -50,7 +50,7 @@
 <main>
   <span class="ver">page v<span id="pagever"></span> / firmware <span id="fwver">?</span></span>
   <h1>Tuft sway tuner</h1>
-  <p class="sub">Any set of servos, in step or as a wave, everything else holds still. Needs firmware tuft_pca16_tune_v1_2 and Chrome or Edge.</p>
+  <p class="sub">Any set of servos, in step or as a wave, everything else holds still. Needs firmware tuft_esp16_tune_v2_0 (direct ESP) or tuft_pca16_tune_v1_2 (PCA9685), and Chrome or Edge.</p>
   <div id="nosupport">This browser has no Web Serial. Open the page in Chrome or Edge.</div>
 
   <div class="row">
@@ -127,8 +127,9 @@ const ROD_MM = 1100;
 let port, writer, chosen = new Set([1]), pattern = 0;
 const PATTERNS = ['In step', 'Wave', 'Scattered'];
 let stagger = 1;
-const PAGE_VERSION = '1.2';
-const FIRMWARE_VERSION = '1.2';   // tuft_pca16_tune_v1_2; bump both together
+const PAGE_VERSION = '1.3';
+// firmware this page speaks to; bump with any protocol change
+const FIRMWARES = { '1.2': 'PCA9685', '2.0': 'direct ESP' };
 $('pagever').textContent = PAGE_VERSION;
 
 if (!('serial' in navigator)) $('nosupport').style.display = 'block';
@@ -270,13 +271,14 @@ $('connect').onclick = async () => {
 
 function checkVersion(v) {
   const el = $('fwver');
-  if (v === FIRMWARE_VERSION) {
-    el.textContent = 'v' + v;
+  const want = Object.keys(FIRMWARES).map(k => 'v' + k).join(' or ');
+  if (v in FIRMWARES) {
+    el.textContent = 'v' + v + ' (' + FIRMWARES[v] + ')';
     el.className = 'ok';
   } else {
-    el.textContent = 'v' + v + ', page wants v' + FIRMWARE_VERSION;
+    el.textContent = 'v' + v + ', page wants ' + want;
     el.className = 'bad';
-    log('!! firmware v' + v + ' but this page is written for v' + FIRMWARE_VERSION + ', controls may not work');
+    log('!! firmware v' + v + ' but this page is written for ' + want + ', controls may not work');
   }
 }
 
